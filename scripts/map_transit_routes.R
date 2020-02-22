@@ -40,7 +40,8 @@ allegheny_tracts <- get_decennial(geography = "tract",
                                   geometry = TRUE,
                                   output = "wide") %>% 
   st_transform(crs = "+init=epsg:4326") %>% 
-  mutate(downtown_flag = GEOID == "42003020100")
+  mutate(name = case_when(GEOID == "42003020100" ~ "Downtown",
+                          GEOID == "42003070300" ~ "Shadyside"))
 
 downtown <- allegheny_tracts %>% 
   filter(GEOID == "42003020100")
@@ -48,11 +49,11 @@ downtown <- allegheny_tracts %>%
 
 
 
-df_joined %>% 
+allegheny_tracts %>% 
   ggplot() +
     geom_sf()
 
-df_joined %>% 
+allegheny_tracts %>% 
   mapview()
 
 mapview(list(allegheny_tracts, transit),
