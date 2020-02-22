@@ -4,13 +4,11 @@ library(tigris)
 library(leaflet)
 library(janitor)
 library(tidycensus)
-
-
-
+library(mapview)
 
 transit <- st_read("data/shapefiles/transit/PAAC_Routes_1909.shp") %>% 
   clean_names() %>% 
-  st_transform(crs = 4326)
+  st_transform(crs = "+init=epsg:4326")
 
 transit %>% 
   ggplot() +
@@ -41,15 +39,47 @@ allegheny_tracts <- get_decennial(geography = "tract",
                                   county = "Allegheny County",
                                   geometry = TRUE,
                                   output = "wide") %>% 
-  st_transform(crs = 4326) %>%  
-  arrange(total_pop) %>% 
-  top_n(1, total_pop)
+  st_transform(crs = "+init=epsg:4326") %>% 
+  mutate(downtown_flag = GEOID == "42003020100")
 
-allegheny_tracts
-
-
-df_joined <- transit %>% 
-  st_join(allegheny_tracts, st_crosses, left = TRUE)
+downtown <- allegheny_tracts %>% 
+  filter(GEOID == "42003020100")
 
 
-df_joined
+
+
+df_joined %>% 
+  ggplot() +
+    geom_sf()
+
+df_joined %>% 
+  mapview()
+
+mapview(list(allegheny_tracts, transit),
+        layer.name = c("Census tracts", "transit"))
+
+mapview(allegheny_tracts, zcol = "downtown_flag") +
+  mapview(transit, zcol = "route")
+
+factpal <- colorFactor(palette = "viridis", domain = transit$route)
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data = allegheny_tracts,
+              color = "#444444",
+              stroke = TRUE,
+              fillOpacity = 0.5,
+              opacity = 1,
+              weight = 2) %>% 
+  addPolylines(data = transit,
+               color = ~factpal(route))
+  
+  
+  
+  
+  addPolylines(data = transit,
+               popup = ~ route,
+               stroke = FALSE,
+               smoothFactor = 0,
+               fillOpacity = 0.7,
+               color = ~ factpal(route))
