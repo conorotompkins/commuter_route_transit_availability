@@ -6,7 +6,7 @@ library(janitor)
 library(tidycensus)
 library(mapview)
 
-transit <- st_read("data/shapefiles/transit/PAAC_Routes_1909.shp") %>% 
+transit <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %>% 
   clean_names() %>% 
   st_transform(crs = "+init=epsg:4326")
 
@@ -59,7 +59,7 @@ allegheny_tracts %>%
 mapview(list(allegheny_tracts, transit),
         layer.name = c("Census tracts", "transit"))
 
-mapview(allegheny_tracts, zcol = "downtown_flag") +
+mapview(allegheny_tracts, zcol = "name") +
   mapview(transit, zcol = "route")
 
 factpal <- colorFactor(palette = "viridis", domain = transit$route)
@@ -74,13 +74,3 @@ leaflet() %>%
               weight = 2) %>% 
   addPolylines(data = transit,
                color = ~factpal(route))
-  
-  
-  
-  
-  addPolylines(data = transit,
-               popup = ~ route,
-               stroke = FALSE,
-               smoothFactor = 0,
-               fillOpacity = 0.7,
-               color = ~ factpal(route))
