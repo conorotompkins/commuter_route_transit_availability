@@ -1,0 +1,164 @@
+---
+title: "route_efficiency"
+author: "Conor Tompkins"
+date: "2/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+library(janitor)
+library(ggrepel)
+
+options(scipen = 999, digits = 2)
+```
+
+```{r}
+df_tract_centroid_summary <- st_read("data/shapefiles/tract_centroid_summary/tract_centroid_summary.shp")
+```
+
+
+```{r}
+#summarized tract data
+df_tract_centroid_summary %>% 
+  ggplot(aes(residents, jobs)) +
+    geom_point()
+```
+
+```{r}
+df_route_stats <- st_read("data/shapefiles/route_stats/route_stats.shp") %>% 
+  rename(route_id = route_d,
+         service_type = srvc_ty,
+         residents = resdnts,
+         stop_count = stp_cnt,
+         route_name = rout_nm,
+         route_length_miles = rt_lng_,
+         stops_per_mile = stps_p_)
+
+df_route_stats %>% 
+  ggplot() +
+    geom_sf()
+```
+
+```{r}
+df_route_stats %>% 
+  ggplot(aes(jobs, residents, fill = service_type)) +
+    geom_label(aes(label = route_id), alpha = .5) +
+    theme_bw()
+```
+```{r}
+df_route_stats %>% 
+  filter(!is.na(route_id)) %>% 
+  select(route_id, service_type,  route_length_miles, residents, jobs) %>% 
+  mutate(route_length_miles = as.numeric(route_length_miles)) %>% 
+  pivot_longer(cols = c(residents, jobs), names_to = "variable", values_to = "value") %>% 
+  ggplot(aes(route_length_miles, value, fill = service_type)) +
+    geom_label(aes(label = route_id), alpha = .5) +
+    facet_wrap(~variable, 
+               scales = "free_y",
+               ncol = 1) +
+    theme_bw()
+```
+
+```{r}
+df_route_stats %>% 
+  filter(!is.na(route_id)) %>% 
+  select(route_id, service_type, stop_count, residents, jobs) %>% 
+  #mutate(route_length_miles = as.numeric(route_length_miles)) %>% 
+  pivot_longer(cols = c(residents, jobs), names_to = "variable", values_to = "value") %>% 
+  ggplot(aes(stop_count, value, fill = service_type)) +
+    geom_label(aes(label = route_id), alpha = .5) +
+    facet_wrap(~variable, 
+               scales = "free_y",
+               ncol = 1) +
+    theme_bw()
+```
+
+
+```{r}
+df_route_stats %>% 
+  filter(!is.na(route_id)) %>% 
+  select(route_id, service_type, stops_per_mile, residents, jobs) %>% 
+  pivot_longer(cols = c(residents, jobs), names_to = "variable", values_to = "value") %>% 
+  ggplot(aes(stops_per_mile, value, fill = service_type)) +
+    #ggforce::geom_mark_ellipse() +  
+    geom_label(aes(label = route_id), alpha = .5) +
+    facet_wrap(~variable, 
+               scales = "free_y",
+               ncol = 1) +
+    theme_bw()
+```
+
+```{r}
+df_route_stats %>% 
+  filter(!is.na(route_id)) %>% 
+  select(route_id, service_type, stops_per_mile, residents, jobs) %>% 
+  mutate(residents_plus_jobs = residents + jobs) %>% 
+  ggplot(aes(stops_per_mile, residents_plus_jobs, fill = service_type)) +
+    geom_label(aes(label = route_id), alpha = .5) +
+    labs(x = "Stops per mile",
+         y = "Residents plus jobs served",
+         caption = "'Served' means the line came within 200 meters of the center of a census tract") +
+    theme_bw()
+```
+
+```{r}
+df_stops_tract_centroids <- st_read("data/shapefiles/joined_stops_tract_centroids/joined_stops_tract_centroids.shp") %>% 
+  rename(stop_name = stop_nm,
+         route_count = routs_c,
+         route_number = rt_nmbr,
+         route_id = route_d,
+         service_type = srvc_ty,
+         total_population = totl_pp,
+         residents = resdnts)
+```
+
+```{r}
+df_tracts <- st_read("data/shapefiles/summarized_census_tract_residents_jobs/summarized_census_tract_residents_jobs.shp") %>% 
+    st_transform(4326) %>% 
+    rename(jobs = cmmtrs_n,
+         residents = cmmtrs_t)
+
+
+df_48_tract_id <- df_stops_tract_centroids %>% 
+  filter(route_id == "48",
+         !is.na(GEOID)) %>% 
+  distinct(GEOID) %>% 
+  st_drop_geometry()
+
+df_48_tract_polygons <- df_tracts %>% 
+  semi_join(df_48_tract_id)
+
+df_48_tract_centroids <- df_tract_centroid_summary %>% 
+  semi_join(df_48_tract_id)
+
+transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %>%
+  clean_names() %>%
+  mutate_at(vars(-all_of(c("geometry"))), as.character) %>%
+  mutate(rt_len_mil = as.numeric(rt_len_mil)) %>% 
+  rename(route_id = route,
+         service_type = type_serv) %>% 
+  distinct(service_type, route_id, route_name, rt_len_mil, geometry) %>%
+  st_transform(4326)
+
+df_48_line <- transit_lines %>% 
+  filter(route_id == "48")
+```
+
+```{r}
+df_tracts %>% 
+  semi_join(df_48_tract_id) %>% 
+  ggplot() +
+    geom_sf() +
+    geom_sf(data = df_48_tract_centroids) +
+    geom_sf(data = df_48_line, color = "red")
+```
+
+
