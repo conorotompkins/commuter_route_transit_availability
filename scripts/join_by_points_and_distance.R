@@ -20,7 +20,7 @@ transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %
   st_transform(4326)
 
 df_service_type <- transit_lines %>% 
-  distinct(service_type, route_id) %>% 
+  distinct(service_type, route_id, full_route_name_id) %>% 
   st_drop_geometry()
 
 str(transit_lines)
@@ -52,6 +52,7 @@ transit_stops %>%
 transit_stops <- transit_stops %>% 
   pivot_longer(cols = starts_with("route_"), names_to = "route_number", values_to = "route_id") %>% 
   st_as_sf()
+  
 
 str(transit_stops)
 
@@ -111,7 +112,8 @@ df_route_filter <- df_stops_joined_distance %>%
 df_route_filter
 
 df_stops_joined_distance <- df_stops_joined_distance %>% 
-  semi_join(df_route_filter, by = c("route_id" = "route_id"))
+  semi_join(df_route_filter, by = c("route_id" = "route_id")) %>% 
+  left_join(df_service_type)
 
 df_stops_joined_distance
 
@@ -175,7 +177,7 @@ ggsave(plot = p, filename  = "output/service_map.png", height = 10, width = 10)
 
 
 ###leaflet
-transit_lines_palette <- colorFactor(palette = "Set1", domain = commuter_transit_lines$route_id)
+transit_lines_palette <- colorFactor(palette = "Set1", domain = commuter_transit_lines$full_route_name_id)
 tract_palette <- colorFactor(palette = "Set1", domain = commute_tracts$GEOID)
 
 leaflet() %>% 
@@ -196,16 +198,24 @@ leaflet() %>%
               #label
               label = commute_tracts$name) %>% 
   addPolylines(data = commuter_transit_lines,
-               color = ~transit_lines_palette(route_id),
+               color = ~transit_lines_palette(full_route_name_id),
                label = commuter_transit_lines$full_route_name_id,
                
                #highlight
+               highlightOptions = highlightOptions(weight = 10,
+                                                   bringToFront = TRUE)
                ) %>% 
+  #addMarkers(data = commuter_transit_lines, popup = ~htmlEscape(full_route_name_id)) %>% 
   addCircleMarkers(data = df_stops_joined_distance,
                    radius = 2,
-                   color = ~transit_lines_palette(route_id),
+                   color = ~transit_lines_palette(full_route_name_id),
                    
                    #label
                    label = str_to_title(df_stops_joined_distance$stop_name)) %>% 
+  addLegend("bottomright", pal = transit_lines_palette, values = commuter_transit_lines$full_route_name_id,
+            #title = "Est. GDP (2010)",
+            #labFormat = labelFormat(prefix = "$"),
+            opacity = 1
+  ) %>% 
   fitBounds(lng1 = commute_zoom[[1]], lat1 = commute_zoom[[2]], lng2 = commute_zoom[[3]], lat2 = commute_zoom[[4]])
 
