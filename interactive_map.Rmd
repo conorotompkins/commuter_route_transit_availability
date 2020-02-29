@@ -1,0 +1,241 @@
+---
+title: "interactive_map"
+author: "Conor Tompkins"
+date: "2/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(janitor)
+library(tidycensus)
+library(leaflet)
+
+options(tigris_use_cache = TRUE,
+        scipen = 999,
+        digits = 2)
+```
+
+```{r}
+##load transit data
+transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %>%
+  clean_names() %>%
+  mutate_at(vars(-all_of(c("geometry"))), as.character) %>%
+  rename(route_id = route,
+         service_type = type_serv) %>% 
+  distinct(service_type, route_id, route_name, geometry) %>%
+  mutate(full_route_name_id = str_c(route_id, route_name, sep = " ")) %>% 
+  st_transform(4326)
+
+df_service_type <- transit_lines %>% 
+  distinct(service_type, route_id) %>% 
+  st_drop_geometry()
+
+str(transit_lines)
+
+transit_stops <- st_read("data/shapefiles/transit_stops/PAAC_Stops_1909.shp") %>%
+  st_transform(4326) %>% 
+  clean_names() %>% 
+  mutate_at(vars(-all_of(c("geometry", "routes_cou"))), as.character) %>%
+  select(stop_name, routes_served = routes_ser, routes_cou, geometry) %>% 
+  distinct(stop_name, routes_served = routes_served, routes_cou, geometry)
+
+str(transit_stops)
+
+max_routes_served <- transit_stops %>% 
+  summarize(max_routes = max(routes_cou)) %>% 
+  pull(max_routes)
+
+transit_stops %>% 
+  filter(routes_cou == max_routes_served)
+
+transit_stops <- transit_stops %>% 
+  separate(routes_served, sep = ", ", into = str_c("route_", 1:max_routes_served), extra = "merge", fill = "right")
+
+str(transit_stops)
+
+transit_stops %>% 
+  filter(routes_cou == max_routes_served)
+
+transit_stops <- transit_stops %>% 
+  pivot_longer(cols = starts_with("route_"), names_to = "route_number", values_to = "route_id") %>% 
+  st_as_sf()
+
+str(transit_stops)
+
+transit_stops <- transit_stops %>%
+  filter(!is.na(route_id)) %>% 
+  left_join(df_service_type)
+```
+
+```{r}
+##load tract data
+allegheny_tracts <- get_decennial(geography = "tract",
+                                  variables = c(total_pop = "P001001"),
+                                  state = "PA",
+                                  county = "Allegheny County",
+                                  geometry = TRUE,
+                                  output = "wide") %>%
+  mutate(name = case_when(GEOID == "42003020100" ~ "Downtown",
+                          GEOID == "42003070300" ~ "Shadyside")) %>% 
+  st_transform(4326)
+
+allegheny_tracts_centroid <- allegheny_tracts %>%
+  mutate(name = case_when(GEOID == "42003020100" ~ "Downtown",
+                          GEOID == "42003070300" ~ "Shadyside")) %>% 
+  mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+         lat = map_dbl(geometry, ~st_centroid(.x)[[2]])) %>% 
+  st_drop_geometry() %>% 
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) %>% 
+  st_transform(4326)
+
+allegheny <- allegheny_tracts %>% 
+  summarize()
+
+commute_tracts <- allegheny_tracts %>% 
+  filter(!is.na(name))
+
+commute_centroids <- allegheny_tracts_centroid %>% 
+  filter(!is.na(name))
+```
+
+```{r}
+df_stops_joined_distance <- transit_stops %>% 
+  st_join(commute_centroids, st_is_within_distance, dist = 700, left = TRUE) %>% 
+  arrange(route_id)
+
+df_stops_joined_distance
+
+df_stops_joined_distance <- df_stops_joined_distance %>% 
+  filter(!is.na(name))
+
+df_stops_joined_distance
+
+df_route_filter <- df_stops_joined_distance %>% 
+  st_drop_geometry() %>% 
+  distinct(route_id, name) %>% 
+  group_by(route_id) %>% 
+  filter(n() >= 2) %>% 
+  ungroup() %>% 
+  distinct(route_id)
+
+df_route_filter
+
+df_stops_joined_distance <- df_stops_joined_distance %>% 
+  semi_join(df_route_filter, by = c("route_id" = "route_id"))
+
+df_stops_joined_distance
+```
+
+```{r}
+df_stops_joined_distance %>% 
+  ggplot() +
+    geom_sf(data = commute_tracts) +
+    geom_sf(data = commute_centroids, color = "red") +
+    geom_sf()
+```
+
+```{r}
+commuter_transit_lines <- transit_lines %>% 
+  semi_join(df_route_filter, by = c("route_id" = "route_id"))
+  
+commute_tracts %>% 
+  st_buffer(dist = .01) %>% 
+  ggplot() +
+    geom_sf() +
+    geom_sf(data = commute_tracts)
+```
+
+```{r}
+commute_zoom <- commute_tracts %>% 
+  st_buffer(dist = .01) %>% 
+  st_bbox()
+```
+
+```{r}
+commute_centroids %>% 
+  ggplot() +
+    geom_sf(data = commute_tracts) +
+    geom_sf() +
+    geom_sf(data = commuter_transit_lines, aes(color = route_id))
+```
+
+```{r}
+allegheny_tracts %>% 
+  ggplot() +
+    geom_sf() +
+    #geom_sf(data = allegheny_tracts_centroid) +
+    geom_sf(data = commute_centroids)
+```
+```{r}
+commuter_transit_lines %>% 
+  st_crop(commute_zoom)
+```
+
+```{r}
+p <- commuter_transit_lines %>% 
+  st_crop(commute_zoom) %>% 
+  ggplot() +
+  geom_sf(data = allegheny, fill = "#00000000") +
+  geom_sf(data = commute_tracts, aes(fill = name), size = 1, alpha = .5) +
+  geom_sf_label(data = commute_centroids, aes(label = name)) +
+  geom_sf(aes(color = route_id)) +
+  geom_sf(data = st_jitter(df_stops_joined_distance), aes(color = route_id), shape = 21, size = 3) +
+  geom_sf_label(aes(color = route_id, label = route_id)) +
+  coord_sf(xlim = c(commute_zoom[1], commute_zoom[3]),
+           ylim = c(commute_zoom[2], commute_zoom[4])) +
+  facet_wrap(~service_type) +
+  guides(color = FALSE,
+         fill = FALSE) +
+  theme_void() +
+  theme(panel.border = element_rect(color = "black", fill = NA))
+
+p
+```
+
+
+```{r}
+###leaflet
+transit_lines_palette <- colorFactor(palette = "Set1", domain = commuter_transit_lines$route_id)
+tract_palette <- colorFactor(palette = "Set1", domain = commute_tracts$GEOID)
+
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(data = allegheny,
+              color = "#444444",
+              stroke = TRUE,
+              fillOpacity = 0,
+              opacity = 1,
+              weight = 2) %>%
+  addPolygons(data = commute_tracts,
+              #color
+              color = ~tract_palette(GEOID),
+              #fill
+              fillColor = ~tract_palette(GEOID),
+              fillOpacity = .5,
+              
+              #label
+              label = commute_tracts$name) %>% 
+  addPolylines(data = commuter_transit_lines,
+               color = ~transit_lines_palette(route_id),
+               label = commuter_transit_lines$full_route_name_id,
+               
+               #highlight
+               #need to add highlights for bus lines
+               ) %>% 
+  addCircleMarkers(data = df_stops_joined_distance,
+                   radius = 2,
+                   color = ~transit_lines_palette(route_id),
+                   
+                   #label
+                   label = str_to_title(df_stops_joined_distance$stop_name)) %>% 
+  fitBounds(lng1 = commute_zoom[[1]], lat1 = commute_zoom[[2]], lng2 = commute_zoom[[3]], lat2 = commute_zoom[[4]])
+```
