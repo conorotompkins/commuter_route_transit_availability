@@ -3,6 +3,11 @@ library(sf)
 library(tigris)
 library(janitor)
 library(tidycensus)
+library(leaflet)
+
+options(tigris_use_cache = TRUE,
+        scipen = 999,
+        digits = 2)
 
 ##load transit data
 transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %>%
@@ -11,6 +16,7 @@ transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %
   rename(route_id = route,
          service_type = type_serv) %>% 
   distinct(service_type, route_id, route_name, geometry) %>%
+  mutate(full_route_name_id = str_c(route_id, route_name, sep = " ")) %>% 
   st_transform(4326)
 
 df_service_type <- transit_lines %>% 
@@ -168,24 +174,38 @@ ggsave(plot = p, filename  = "output/service_map.png", height = 10, width = 10)
 
 
 
-df_joined_crosses <- transit %>% 
-  st_join(commute, st_crosses, left = TRUE)
+###leaflet
+transit_lines_palette <- colorFactor(palette = "Set1", domain = commuter_transit_lines$route_id)
+tract_palette <- colorFactor(palette = "Set1", domain = commute_tracts$GEOID)
 
-
-df_route_crosses <- df_joined_crosses %>% 
-  group_by(route) %>% 
-  filter(n() > 1)
-
-
-
-df_route_crosses %>% 
-  ggplot() +
-    geom_sf(data = allegheny, fill = "#00000000") +
-    geom_sf(data = commute, aes(fill = name), color = NA) +
-    geom_sf(data = commute, fill = "#00000000", size = 1) +
-    geom_sf(aes(color = route)) +
-
-    #facet_wrap(~downtown_flag) +
-    theme_void()
-
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(data = allegheny,
+              color = "#444444",
+              stroke = TRUE,
+              fillOpacity = 0,
+              opacity = 1,
+              weight = 2) %>%
+  addPolygons(data = commute_tracts,
+              #color
+              color = ~tract_palette(GEOID),
+              #fill
+              fillColor = ~tract_palette(GEOID),
+              fillOpacity = .5,
+              
+              #label
+              label = commute_tracts$name) %>% 
+  addPolylines(data = commuter_transit_lines,
+               color = ~transit_lines_palette(route_id),
+               label = commuter_transit_lines$full_route_name_id,
+               
+               #highlight
+               ) %>% 
+  addCircleMarkers(data = df_stops_joined_distance,
+                   radius = 2,
+                   color = ~transit_lines_palette(route_id),
+                   
+                   #label
+                   label = str_to_title(df_stops_joined_distance$stop_name)) %>% 
+  fitBounds(lng1 = commute_zoom[[1]], lat1 = commute_zoom[[2]], lng2 = commute_zoom[[3]], lat2 = commute_zoom[[4]])
 
