@@ -4,6 +4,7 @@ library(tigris)
 library(janitor)
 library(tidycensus)
 library(leaflet)
+library(vroom)
 
 options(tigris_use_cache = TRUE,
         scipen = 999,
@@ -97,19 +98,6 @@ commute_centroids <- allegheny_tracts_centroid #%>%
 
 #map
 leaflet() %>% 
-  addTiles() %>% 
-  addPolygons(data = allegheny %>% st_transform(4326),
-              color = "#444444",
-              stroke = TRUE,
-              fillOpacity = 0,
-              opacity = 1,
-              weight = 2,
-              group = "Census tracts") %>% 
-  addPolygons(data = allegheny_tracts %>% st_transform(4326),
-              #color = NA,
-              fillOpacity = .3)
-
-leaflet() %>% 
   addProviderTiles(providers$CartoDB.Positron) %>% 
   addPolygons(data = st_transform(allegheny, crs = 4326),
               color = "#444444",
@@ -143,32 +131,65 @@ df_stops_joined_distance <- transit_stops %>%
   arrange(route_id)
 
 
-find_transit_connections <- function(from, to){
-  test <<- df_stops_joined_distance %>% 
+count_transit_connections <- function(from, to){
+  from <- enquo(from)
+  to <- enquo(to)
+  
+  df_stops_joined_distance %>% 
       st_drop_geometry() %>% 
       #semi_join
-      filter(GEOID %in% c(from, to)) %>% 
+      filter(GEOID %in% c(!!from, !!to)) %>% 
       #count(GEOID, route_id, sort = TRUE) %>% 
       distinct(route_id, GEOID) %>% 
       count(route_id) %>% 
       filter(n >= 2) %>% 
-      select(route_id) %>% 
-      mutate(from = from,
-             to = to)
-
-  nrow(test) >= 2
+      #mutate(from = from,
+      #       to = to) %>% 
+    nrow()
 }
 
-find_transit_connections(from = "42003101100", to = "42003020100")
+count_transit_connections(from = "42003101100", to = "42003020100")
 
-map_transit_connections
+
+df_connections <- vroom("data/summarized_lodes_tracts.csv",
+                        col_types = cols("c", "c", "n")) %>% 
+  semi_join(allegheny_tracts, by = c("h_tract" = "GEOID")) %>% 
+  semi_join(allegheny_tracts, by = c("w_tract" = "GEOID")) %>% 
+  filter(!(h_tract == w_tract)) %>% 
+  arrange(desc(commuters)) %>% 
+  top_n(100)
+
+df_connections
+
+
+
+df_connections %>% 
+  rowwise() %>% 
+  mutate(connections = count_transit_connections(from = h_tract, to = w_tract)) %>% 
+  View()
+
+df_connections %>% 
+  rowwise() %>% 
+  mutate(connections = has_transit_connections(from = h_tract, to = w_tract)) %>% 
+  ggplot(aes(commuters, connections)) +
+    geom_point()
+
+
+
+
+
 
 df_stops_joined_distance %>% 
   st_drop_geometry() %>% 
   #semi_join
-  filter(GEOID %in% c("42003101100", "42003020100")) %>% 
+  filter(GEOID %in% c("42003170200", "42003020100")) %>% 
   #count(GEOID, route_id, sort = TRUE) %>% 
   distinct(route_id, GEOID) %>% 
   count(route_id) %>% 
   filter(n >= 2) %>% 
-  View()
+  select(route_id)
+
+allegheny_tracts %>% 
+  mutate(flag = (GEOID == "42003170200")) %>% 
+  ggplot(aes(fill = flag)) +
+    geom_sf()
