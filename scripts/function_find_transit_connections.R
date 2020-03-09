@@ -10,6 +10,8 @@ options(tigris_use_cache = TRUE,
         scipen = 999,
         digits = 2)
 
+source("scripts/functions.R")
+
 ##load transit data
 transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %>%
   clean_names() %>%
@@ -131,22 +133,6 @@ df_stops_joined_distance <- transit_stops %>%
   arrange(route_id)
 
 
-count_transit_connections <- function(from, to){
-  from <- enquo(from)
-  to <- enquo(to)
-  
-  df_stops_joined_distance %>% 
-      st_drop_geometry() %>% 
-      #semi_join
-      filter(GEOID %in% c(!!from, !!to)) %>% 
-      #count(GEOID, route_id, sort = TRUE) %>% 
-      distinct(route_id, GEOID) %>% 
-      count(route_id) %>% 
-      filter(n >= 2) %>% 
-      #mutate(from = from,
-      #       to = to) %>% 
-    nrow()
-}
 
 count_transit_connections(from = "42003101100", to = "42003020100")
 
@@ -161,8 +147,6 @@ df_connections <- vroom("data/summarized_lodes_tracts.csv",
 
 df_connections
 
-
-
 df_connections %>% 
   rowwise() %>% 
   mutate(connections = count_transit_connections(from = h_tract, to = w_tract)) %>% 
@@ -170,11 +154,14 @@ df_connections %>%
 
 df_connections %>% 
   rowwise() %>% 
-  mutate(connections = has_transit_connections(from = h_tract, to = w_tract)) %>% 
+  mutate(connections = count_transit_connections(from = h_tract, to = w_tract)) %>% 
   ggplot(aes(commuters, connections)) +
     geom_point()
 
-
+allegheny_tracts %>% 
+  mutate(flag = GEOID %in% c("42003170200", "42003020100")) %>% 
+  ggplot(aes(fill = flag)) +
+    geom_sf()
 
 
 
@@ -183,13 +170,19 @@ df_stops_joined_distance %>%
   st_drop_geometry() %>% 
   #semi_join
   filter(GEOID %in% c("42003170200", "42003020100")) %>% 
-  #count(GEOID, route_id, sort = TRUE) %>% 
   distinct(route_id, GEOID) %>% 
   count(route_id) %>% 
   filter(n >= 2) %>% 
-  select(route_id)
+  pull(route_id) %>% 
+  paste(collapse = ", ")
 
-allegheny_tracts %>% 
-  mutate(flag = (GEOID == "42003170200")) %>% 
-  ggplot(aes(fill = flag)) +
-    geom_sf()
+transit_connection_routes(from = "42003101100", to = "42003020100")
+
+
+df_connections %>% 
+  rowwise() %>% 
+  mutate(transit_connections =  count_transit_connections(from = h_tract, to = w_tract),
+         routes_served_by = transit_connection_routes(from = h_tract, to = w_tract)) %>% 
+  View()
+
+
