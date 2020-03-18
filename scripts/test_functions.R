@@ -12,7 +12,7 @@ options(tigris_use_cache = TRUE,
 
 source("scripts/functions.R")
 
-##load transit data
+#load transit data
 transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %>%
   clean_names() %>%
   mutate_at(vars(-all_of(c("geometry"))), as.character) %>%
@@ -37,7 +37,7 @@ transit_stops <- st_read("data/shapefiles/transit_stops/PAAC_Stops_1909.shp") %>
 
 transit_stops
 
-#identify maximum number of routes served by a stop
+####identify maximum number of routes served by a stop
 max_routes_served <- transit_stops %>% 
   summarize(max_routes = max(routes_cou)) %>% 
   pull(max_routes)
@@ -45,7 +45,7 @@ max_routes_served <- transit_stops %>%
 transit_stops %>% 
   filter(routes_cou == max_routes_served)
 
-#separate routes_served into multiple columns, one per route
+####separate routes_served into multiple columns, one per route
 transit_stops <- transit_stops %>% 
   separate(routes_served, sep = ", ", into = str_c("route_", 1:max_routes_served), extra = "merge", fill = "right")
 
@@ -54,7 +54,7 @@ transit_stops
 transit_stops %>% 
   filter(routes_cou == max_routes_served)
 
-#pivot data longer
+####pivot data longer
 transit_stops <- transit_stops %>% 
   pivot_longer(cols = starts_with("route_"), names_to = "route_number", values_to = "route_id") %>% 
   st_as_sf()
@@ -77,7 +77,7 @@ allegheny_tracts <- get_decennial(geography = "tract",
                           GEOID == "42003070300" ~ "Shadyside")) %>% 
   st_transform(3488)
 
-#calculate centers of the tracts
+####calculate centers of the tracts
 allegheny_tracts_centroid <- allegheny_tracts %>%
   mutate(name = case_when(GEOID == "42003020100" ~ "Downtown",
                           GEOID == "42003070300" ~ "Shadyside")) %>% 
@@ -87,7 +87,7 @@ allegheny_tracts_centroid <- allegheny_tracts %>%
   st_as_sf(coords = c("lon", "lat"), crs = 3488) %>% 
   st_transform(3488)
 
-#creates table with geometry of the county border
+####creates table with geometry of the county border
 allegheny <- allegheny_tracts %>% 
   summarize()
 
@@ -133,7 +133,7 @@ df_stops_joined_distance <- transit_stops %>%
   arrange(route_id)
 
 
-
+#test functions
 count_transit_connections(from = "42003101100", to = "42003020100")
 
 
@@ -147,10 +147,10 @@ df_connections <- vroom("data/summarized_lodes_tracts.csv",
 
 df_connections
 
+#use count_transit_connections to see how many transit lines serve a commuter route
 df_connections %>% 
   rowwise() %>% 
-  mutate(connections = count_transit_connections(from = h_tract, to = w_tract)) %>% 
-  View()
+  mutate(connections = count_transit_connections(from = h_tract, to = w_tract))
 
 df_connections %>% 
   rowwise() %>% 
@@ -158,31 +158,12 @@ df_connections %>%
   ggplot(aes(commuters, connections)) +
     geom_point()
 
-allegheny_tracts %>% 
-  mutate(flag = GEOID %in% c("42003170200", "42003020100")) %>% 
-  ggplot(aes(fill = flag)) +
-    geom_sf()
 
 
-
-
-df_stops_joined_distance %>% 
-  st_drop_geometry() %>% 
-  #semi_join
-  filter(GEOID %in% c("42003170200", "42003020100")) %>% 
-  distinct(route_id, GEOID) %>% 
-  count(route_id) %>% 
-  filter(n >= 2) %>% 
-  pull(route_id) %>% 
-  paste(collapse = ", ")
-
-transit_connection_routes(from = "42003101100", to = "42003020100")
-
-
+#use transit_connection_routes to list which lines serve a commuter route
 df_connections %>% 
   rowwise() %>% 
   mutate(transit_connections =  count_transit_connections(from = h_tract, to = w_tract),
-         routes_served_by = transit_connection_routes(from = h_tract, to = w_tract)) %>% 
-  View()
+         routes_served_by = transit_connection_routes(from = h_tract, to = w_tract))
 
 
