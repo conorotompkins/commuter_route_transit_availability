@@ -1,9 +1,11 @@
 ---
-title: "route_efficiency"
+title: "Roughly Calculating Port Authority transit line efficiency"
 author: "Conor Tompkins"
 date: "2/25/2020"
 output: html_document
 ---
+
+As part my work on transit lines in Allegheny County, I am interested in which transit lines are most efficient, in terms of residents and jobs served. This is possible with the Port Authority transit line datasets [hosted on the WPRDC]() and data from the Census.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,
@@ -11,27 +13,55 @@ knitr::opts_chunk$set(echo = TRUE,
                       warning = FALSE)
 ```
 
+Load libraries and set up the environment:
 ```{r}
 library(tidyverse)
 library(sf)
 library(janitor)
 library(ggrepel)
+library(hrbrthemes)
 
 options(scipen = 999, digits = 2)
+
+theme_set(theme_ipsum())
 ```
 
+Need to show how to summarize this (in munge_data.R)
 ```{r}
 df_tract_centroid_summary <- st_read("data/shapefiles/tract_centroid_summary/tract_centroid_summary.shp")
 ```
 
-
+To recap, the distribution of jobs and residents across census tracts is vaguely normal. The main outlier in the "jobs" measure is the census tract for the Golden Triangle (Downtown).
 ```{r}
-#summarized tract data
 df_tract_centroid_summary %>% 
-  ggplot(aes(residents, jobs)) +
-    geom_point()
+  select(GEOID, residents, jobs) %>% 
+  st_drop_geometry() %>% 
+  pivot_longer(cols = c(residents, jobs), names_to = "measure", values_to = "value") %>% 
+  ggplot(aes(value, fill = measure)) +
+    geom_density() +
+    facet_wrap(~measure, ncol = 1, scales = "free") +
+    scale_x_log10() +
+    guides(fill = FALSE) +
+    labs(x = "Log 10 scale",
+         y = "Density")
 ```
 
+```{r}
+df_tract_centroid_summary %>% 
+  ggplot(aes(residents, jobs)) +
+    geom_point() +
+    geom_label_repel(data = df_tract_centroid_summary %>% filter(jobs == max(jobs)),
+                     label = "Downtown") +
+    scale_y_comma() +
+    scale_x_comma() +
+    labs(x = "Residents",
+         y = "Jobs")
+```
+
+This code grabs the shapefile with the transit route stats and stop geometry. The core of the code that creates this data is this:
+* calculate how many residents and jobs are in each census tract
+* calculate which transit lines stops serve which census tracts
+* summarize how many residents and jobs a transit line servers
 ```{r}
 df_route_stats <- st_read("data/shapefiles/route_stats/route_stats.shp") %>% 
   rename(route_id = route_d,
@@ -42,60 +72,87 @@ df_route_stats <- st_read("data/shapefiles/route_stats/route_stats.shp") %>%
          route_length_miles = rt_lng_,
          stops_per_mile = stps_p_)
 
-df_route_stats %>% 
-  ggplot() +
-    geom_sf()
+df_route_stats
 ```
 
+This is a basic plot of all the transit stops in the county:
+```{r}
+df_route_stats %>% 
+  ggplot() +
+    geom_sf(size = .1, alpha = .1) +
+    theme_void()
+```
+
+The immediate question that comes to mind is "how many residents and jobs does a transit line serve?". Keep in mind that more than one transit line can serve a given resident or job. This shows that the "Key Corridor" lines serve the most jobs.
 ```{r}
 df_route_stats %>% 
   ggplot(aes(jobs, residents, fill = service_type)) +
     geom_label(aes(label = route_id), alpha = .5) +
-    theme_bw()
+    scale_x_comma() +
+    scale_y_comma() +
+    scale_fill_discrete("Service type") +
+    labs(x = "Jobs served",
+         y = "Residents served")
 ```
+
+This graph compares how many residents/jobs a transit line serves to how long the line is. The 28X and P10 are the least efficient in both cases. However, the 28X serves the Pittsburgh International Airport, and that utility is not captured in this analysis.
 ```{r}
 df_route_stats %>% 
   filter(!is.na(route_id)) %>% 
-  select(route_id, service_type,  route_length_miles, residents, jobs) %>% 
-  mutate(route_length_miles = as.numeric(route_length_miles)) %>% 
+  select(route_id, service_type, route_length_miles, residents, jobs) %>% 
   pivot_longer(cols = c(residents, jobs), names_to = "variable", values_to = "value") %>% 
   ggplot(aes(route_length_miles, value, fill = service_type)) +
     geom_label(aes(label = route_id), alpha = .5) +
     facet_wrap(~variable, 
                scales = "free_y",
-               ncol = 1) +
-    theme_bw()
+               ncol = 1,
+               strip.position = "left") +
+    scale_y_comma() +
+    scale_fill_discrete("Service Type") +
+    labs(x = "Route length (miles)",
+         y = NULL) +
+    theme(strip.text = element_text(hjust = .5))
 ```
 
+This performs a similar comparison, but uses the number of stops per line instead of line distance. The 71/61 lines are very efficient in terms of jobs/stops, and the 59 appears to be the most inefficient.
 ```{r}
 df_route_stats %>% 
   filter(!is.na(route_id)) %>% 
   select(route_id, service_type, stop_count, residents, jobs) %>% 
-  #mutate(route_length_miles = as.numeric(route_length_miles)) %>% 
   pivot_longer(cols = c(residents, jobs), names_to = "variable", values_to = "value") %>% 
   ggplot(aes(stop_count, value, fill = service_type)) +
     geom_label(aes(label = route_id), alpha = .5) +
     facet_wrap(~variable, 
                scales = "free_y",
-               ncol = 1) +
-    theme_bw()
+               ncol = 1,
+               strip.position = "left") +
+    scale_y_comma() +
+    scale_fill_discrete("Service type") +
+    labs(x = "Number of stops",
+         y = NULL) +
+    theme(strip.text = element_text(hjust = .5))
 ```
 
-
+In terms of stops per mile, the Express lines are most efficient. The incline lines are least efficient, but that is an artifact of their unique geography.
 ```{r}
 df_route_stats %>% 
   filter(!is.na(route_id)) %>% 
   select(route_id, service_type, stops_per_mile, residents, jobs) %>% 
   pivot_longer(cols = c(residents, jobs), names_to = "variable", values_to = "value") %>% 
   ggplot(aes(stops_per_mile, value, fill = service_type)) +
-    #ggforce::geom_mark_ellipse() +  
     geom_label(aes(label = route_id), alpha = .5) +
     facet_wrap(~variable, 
                scales = "free_y",
-               ncol = 1) +
-    theme_bw()
+               ncol = 1,
+               strip.position = "left") +
+    scale_y_comma() +
+    scale_fill_discrete("Service type") +
+    labs(x = "Stops per mile",
+         y = NULL) +
+    theme(strip.text = element_text(hjust = .5))
 ```
 
+This graph attempts to summarize everything by adding residents + jobs and comparing that to stops per mile. The "Express" and "Key Corridor" lines do the best here.
 ```{r}
 df_route_stats %>% 
   filter(!is.na(route_id)) %>% 
@@ -106,59 +163,6 @@ df_route_stats %>%
     labs(x = "Stops per mile",
          y = "Residents plus jobs served",
          caption = "'Served' means the line came within 200 meters of the center of a census tract") +
-    theme_bw()
+    scale_y_comma() +
+    scale_fill_discrete("Service type")
 ```
-
-```{r}
-df_stops_tract_centroids <- st_read("data/shapefiles/joined_stops_tract_centroids/joined_stops_tract_centroids.shp") %>% 
-  rename(stop_name = stop_nm,
-         route_count = routs_c,
-         route_number = rt_nmbr,
-         route_id = route_d,
-         service_type = srvc_ty,
-         total_population = totl_pp,
-         residents = resdnts)
-```
-
-```{r}
-df_tracts <- st_read("data/shapefiles/summarized_census_tract_residents_jobs/summarized_census_tract_residents_jobs.shp") %>% 
-    st_transform(4326) %>% 
-    rename(jobs = cmmtrs_n,
-         residents = cmmtrs_t)
-
-
-df_48_tract_id <- df_stops_tract_centroids %>% 
-  filter(route_id == "48",
-         !is.na(GEOID)) %>% 
-  distinct(GEOID) %>% 
-  st_drop_geometry()
-
-df_48_tract_polygons <- df_tracts %>% 
-  semi_join(df_48_tract_id)
-
-df_48_tract_centroids <- df_tract_centroid_summary %>% 
-  semi_join(df_48_tract_id)
-
-transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %>%
-  clean_names() %>%
-  mutate_at(vars(-all_of(c("geometry"))), as.character) %>%
-  mutate(rt_len_mil = as.numeric(rt_len_mil)) %>% 
-  rename(route_id = route,
-         service_type = type_serv) %>% 
-  distinct(service_type, route_id, route_name, rt_len_mil, geometry) %>%
-  st_transform(4326)
-
-df_48_line <- transit_lines %>% 
-  filter(route_id == "48")
-```
-
-```{r}
-df_tracts %>% 
-  semi_join(df_48_tract_id) %>% 
-  ggplot() +
-    geom_sf() +
-    geom_sf(data = df_48_tract_centroids) +
-    geom_sf(data = df_48_line, color = "red")
-```
-
-
