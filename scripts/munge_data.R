@@ -14,12 +14,16 @@ allegheny_tracts <- get_decennial(geography = "tract",
                                   geometry = TRUE,
                                   output = "wide")
 
+
+
 #read crosswalk
+#get from https://lehd.ces.census.gov/data/ "Geography crosswalk for PA"
 geo_crosswalk <- vroom("data/pa_xwalk.csv.gz", col_types = cols(.default = "c"))
 
 geo_crosswalk
 
 #read in lodes data
+#get from https://lehd.ces.census.gov/data/
 df_lodes <- vroom("data/pa_od_main_JT00_2017.csv.gz", col_types = cols(.default = "c")) %>% 
   mutate(S000 = as.numeric(S000)) %>% 
   select(h_geocode, w_geocode, S000)
@@ -82,6 +86,7 @@ df_tract_centroid_summary <- st_read("data/shapefiles/summarized_census_tract_re
 #st_write(df_tract_centroid_summary, "data/shapefiles/tract_centroid_summary/tract_centroid_summary.shp")
 
 ##load transit data
+#get from https://data.wprdc.org/dataset/port-authority-current-transit-routes/resource/2a98ac2f-ff91-49d7-acd2-8d0e1e509802
 transit_lines <- st_read("data/shapefiles/transit_lines/PAAC_Routes_1909.shp") %>%
   clean_names() %>%
   mutate_at(vars(-all_of(c("geometry"))), as.character) %>%
@@ -97,6 +102,7 @@ df_service_type <- transit_lines %>%
 
 glimpse(df_service_type)
 
+#get from https://data.wprdc.org/dataset/port-authority-of-allegheny-county-transit-stops/resource/ea30bb40-6401-47d9-ae33-b184dbef33a8
 transit_stops <- st_read("data/shapefiles/transit_stops/PAAC_Stops_1909.shp") %>%
   st_transform(4326) %>% 
   clean_names() %>% 
